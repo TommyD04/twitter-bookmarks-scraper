@@ -50,11 +50,20 @@ class MediaDownloader:
             self._skipped += 1
             return False
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(item["url"], follow_redirects=True)
-            resp.raise_for_status()
-            with open(filepath, "wb") as f:
-                f.write(resp.content)
-
-        self._downloaded += 1
-        return True
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    resp = await client.get(item["url"], follow_redirects=True)
+                    resp.raise_for_status()
+                    with open(filepath, "wb") as f:
+                        f.write(resp.content)
+                self._downloaded += 1
+                return True
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.HTTPStatusError) as e:
+                if attempt < 2:
+                    wait = (attempt + 1) * 5
+                    print(f"Download failed for {item['filename']}, retrying in {wait}s: {e}")
+                    await asyncio.sleep(wait)
+                else:
+                    print(f"Download failed for {item['filename']} after 3 attempts, skipping: {e}")
+                    return False
