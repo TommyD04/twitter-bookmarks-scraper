@@ -1,4 +1,5 @@
-from unittest.mock import AsyncMock, MagicMock
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -23,6 +24,16 @@ def make_mock_tweet(id="123", text="Hello world", name="Test User",
     return tweet
 
 
+def make_mock_result(tweets, next_result=None):
+    """Create a mock result object that is iterable and has .next()."""
+    result = MagicMock()
+    result.__iter__ = MagicMock(return_value=iter(tweets))
+    result.next = AsyncMock(return_value=next_result)
+    # Make bool(result) truthy
+    result.__bool__ = MagicMock(return_value=True)
+    return result
+
+
 @pytest.mark.asyncio
 async def test_fetch_bookmarks_converts_tweets():
     mock_tweets = [
@@ -30,41 +41,109 @@ async def test_fetch_bookmarks_converts_tweets():
         make_mock_tweet(id="456", text="Second tweet", screen_name="other",
                         media=[{"type": "photo"}], in_reply_to="789"),
     ]
+    result = make_mock_result(mock_tweets, next_result=None)
     client = MagicMock()
-    client.get_bookmarks = AsyncMock(return_value=mock_tweets)
+    client.get_bookmarks = AsyncMock(return_value=result)
 
-    result = await fetch_bookmarks(client)
+    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock):
+        bookmarks = await fetch_bookmarks(client)
 
-    assert len(result) == 2
-    assert result[0]["id"] == "123"
-    assert result[0]["text"] == "Hello world"
-    assert result[0]["author"] == "Test User (@testuser)"
-    assert result[0]["url"] == "https://x.com/testuser/status/123"
-    assert result[0]["has_media"] is False
-    assert result[0]["is_reply"] is False
+    assert len(bookmarks) == 2
+    assert bookmarks[0]["id"] == "123"
+    assert bookmarks[0]["text"] == "Hello world"
+    assert bookmarks[0]["author"] == "Test User (@testuser)"
+    assert bookmarks[0]["url"] == "https://x.com/testuser/status/123"
+    assert bookmarks[0]["has_media"] is False
+    assert bookmarks[0]["is_reply"] is False
 
-    assert result[1]["has_media"] is True
-    assert result[1]["is_reply"] is True
+    assert bookmarks[0]["in_reply_to"] is None
+    assert bookmarks[1]["has_media"] is True
+    assert bookmarks[1]["is_reply"] is True
+    assert bookmarks[1]["in_reply_to"] == "789"
 
 
 @pytest.mark.asyncio
 async def test_fetch_bookmarks_empty():
+    result = make_mock_result([], next_result=None)
     client = MagicMock()
-    client.get_bookmarks = AsyncMock(return_value=[])
+    client.get_bookmarks = AsyncMock(return_value=result)
 
-    result = await fetch_bookmarks(client)
-    assert result == []
+    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock):
+        bookmarks = await fetch_bookmarks(client)
+    assert bookmarks == []
 
 
 @pytest.mark.asyncio
-async def test_fetch_bookmarks_no_pagination():
-    mock_tweets = MagicMock()
-    mock_tweets.__iter__ = MagicMock(return_value=iter([make_mock_tweet()]))
-    mock_tweets.next = AsyncMock()
+async def test_fetch_bookmarks_pagination():
+    page1_tweets = [make_mock_tweet(id="1"), make_mock_tweet(id="2")]
+    page2_tweets = [make_mock_tweet(id="3")]
+
+    page2_result = make_mock_result(page2_tweets, next_result=None)
+    page1_result = make_mock_result(page1_tweets, next_result=page2_result)
 
     client = MagicMock()
-    client.get_bookmarks = AsyncMock(return_value=mock_tweets)
+    client.get_bookmarks = AsyncMock(return_value=page1_result)
 
-    await fetch_bookmarks(client)
+    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock):
+        bookmarks = await fetch_bookmarks(client)
 
-    mock_tweets.next.assert_not_called()
+    assert len(bookmarks) == 3
+    assert [b["id"] for b in bookmarks] == ["1", "2", "3"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_delay_between_pages():
+    page2_result = make_mock_result([make_mock_tweet(id="2")], next_result=None)
+    page1_result = make_mock_result([make_mock_tweet(id="1")], next_result=page2_result)
+
+    client = MagicMock()
+    client.get_bookmarks = AsyncMock(return_value=page1_result)
+
+    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        await fetch_bookmarks(client)
+
+    # sleep(2) called at least once between pages
+    sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+    assert 2 in sleep_args
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_429_backoff():
+    from twikit.errors import TooManyRequests
+
+    page1_tweets = [make_mock_tweet(id="1")]
+    page1_result = make_mock_result(page1_tweets)
+
+    reset_time = int(time.time()) + 10
+    error = TooManyRequests("rate limited", headers={"x-rate-limit-reset": str(reset_time)})
+
+    page2_result = make_mock_result([make_mock_tweet(id="2")], next_result=None)
+    # First .next() raises 429, second .next() succeeds
+    page1_result.next = AsyncMock(side_effect=[error, page2_result])
+
+    client = MagicMock()
+    client.get_bookmarks = AsyncMock(return_value=page1_result)
+
+    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        bookmarks = await fetch_bookmarks(client)
+
+    assert len(bookmarks) == 2
+    # Verify a sleep > 2 was called (the backoff sleep)
+    sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
+    assert any(s > 2 for s in sleep_args)
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_progress_callback():
+    page2_result = make_mock_result([make_mock_tweet(id="2")], next_result=None)
+    page1_result = make_mock_result([make_mock_tweet(id="1")], next_result=page2_result)
+
+    client = MagicMock()
+    client.get_bookmarks = AsyncMock(return_value=page1_result)
+
+    progress_counts = []
+
+    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock):
+        await fetch_bookmarks(client, on_progress=lambda n: progress_counts.append(n))
+
+    assert progress_counts == [1, 2]
