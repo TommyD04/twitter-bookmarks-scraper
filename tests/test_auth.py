@@ -1,3 +1,4 @@
+import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -52,3 +53,34 @@ async def test_login_with_existing_cookies(config, capsys):
     mock_client.load_cookies.assert_called_once_with(cookies_path)
     mock_client.login.assert_not_called() if hasattr(mock_client, "login") else None
     assert "Using saved session..." in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_login_with_browser_cookies(tmp_path, capsys):
+    # Create a browser cookie file
+    browser_cookies = tmp_path / "browser_cookies.json"
+    browser_cookies.write_text(json.dumps([
+        {"name": "auth_token", "value": "abc123"},
+        {"name": "ct0", "value": "xyz789"},
+    ]))
+
+    config = Config(
+        output=str(tmp_path),
+        username="",
+        email="",
+        password="",
+        cookies=str(browser_cookies),
+    )
+
+    mock_client = MagicMock()
+    mock_client.set_cookies = MagicMock()
+    mock_client.save_cookies = MagicMock()
+
+    with patch("scraper.auth.Client", return_value=mock_client):
+        client = await login(config)
+
+    mock_client.set_cookies.assert_called_once_with({"auth_token": "abc123", "ct0": "xyz789"})
+    cookies_path = os.path.join(config.output, "cookies.json")
+    mock_client.save_cookies.assert_called_once_with(cookies_path)
+    assert client is mock_client
+    assert "Importing browser cookies..." in capsys.readouterr().out

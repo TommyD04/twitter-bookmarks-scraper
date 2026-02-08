@@ -28,3 +28,14 @@ def test_missing_credentials_prompts(monkeypatch):
     assert config.username == "prompted_value"
     assert config.email == "prompted_value"
     assert config.password == "prompted_pass"
+
+
+def test_cookies_flag_skips_credentials():
+    config = parse_args([
+        "--output", "./out",
+        "--cookies", "browser_cookies.json",
+    ])
+    assert config.cookies == "browser_cookies.json"
+    assert config.username == ""
+    assert config.email == ""
+    assert config.password == ""
