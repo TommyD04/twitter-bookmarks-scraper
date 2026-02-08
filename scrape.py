@@ -8,12 +8,16 @@ from scraper.fetcher import fetch_bookmarks
 from scraper.media import MediaDownloader
 from scraper.renderer import render_bookmark, bookmark_filename
 from scraper.threads import ThreadResolver
+from scraper.tracker import ProgressTracker
 
 
 async def main():
     config = parse_args()
 
     os.makedirs(config.output, exist_ok=True)
+
+    tracker = ProgressTracker(config.output)
+    tracker.load()
 
     try:
         client = await login(config)
@@ -22,7 +26,7 @@ async def main():
         sys.exit(1)
 
     try:
-        bookmarks = await fetch_bookmarks(client)
+        bookmarks = await fetch_bookmarks(client, tracker=tracker)
     except Exception as e:
         print(f"Failed to fetch bookmarks: {e}", file=sys.stderr)
         sys.exit(1)
@@ -60,15 +64,23 @@ async def main():
         print(f"Downloaded {downloaded} media files ({skipped} already existed)")
 
     total = len(bookmarks)
+    skipped_md = 0
     for i, bm in enumerate(bookmarks, 1):
-        md = render_bookmark(bm, thread=threads.get(bm["id"]))
         filename = bookmark_filename(bm)
         filepath = os.path.join(config.output, filename)
+        if os.path.isfile(filepath):
+            skipped_md += 1
+            continue
+        md = render_bookmark(bm, thread=threads.get(bm["id"]))
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(md)
         if i % 10 == 0 or i == total:
             print(f"Writing {i}/{total} markdown files...")
 
+    if skipped_md:
+        print(f"Skipped {skipped_md} existing markdown files")
+
+    tracker.save()
     print(f"Done. {total} bookmarks saved to {config.output}/")
 
 

@@ -34,10 +34,29 @@ def _extract_tweets(result) -> list[dict]:
     return bookmarks
 
 
-async def fetch_bookmarks(client, on_progress: Callable[[int], None] | None = None) -> list[dict]:
-    result = await client.get_bookmarks(count=20)
+async def fetch_bookmarks(client, on_progress: Callable[[int], None] | None = None, tracker=None) -> list[dict]:
+    # Resume from saved cursor if tracker has one
+    kwargs = {"count": 20}
+    if tracker and tracker.get_cursor():
+        kwargs["cursor"] = tracker.get_cursor()
 
-    bookmarks = _extract_tweets(result)
+    result = await client.get_bookmarks(**kwargs)
+
+    new_tweets = _extract_tweets(result)
+
+    # Filter out already-scraped tweets
+    if tracker:
+        skipped = [t for t in new_tweets if tracker.is_scraped(t["id"])]
+        if skipped:
+            print(f"Skipping {len(skipped)} already-scraped bookmarks")
+        new_tweets = [t for t in new_tweets if not tracker.is_scraped(t["id"])]
+        for t in new_tweets:
+            tracker.mark_scraped(t["id"])
+        if hasattr(result, "cursor"):
+            tracker.save_cursor(result.cursor)
+        tracker.save()
+
+    bookmarks = list(new_tweets)
     if on_progress:
         on_progress(len(bookmarks))
     print(f"Fetched {len(bookmarks)} bookmarks so far...")
@@ -61,6 +80,18 @@ async def fetch_bookmarks(client, on_progress: Callable[[int], None] | None = No
         new_tweets = _extract_tweets(result)
         if not new_tweets:
             break
+
+        # Filter out already-scraped tweets
+        if tracker:
+            skipped = [t for t in new_tweets if tracker.is_scraped(t["id"])]
+            if skipped:
+                print(f"Skipping {len(skipped)} already-scraped bookmarks")
+            new_tweets = [t for t in new_tweets if not tracker.is_scraped(t["id"])]
+            for t in new_tweets:
+                tracker.mark_scraped(t["id"])
+            if hasattr(result, "cursor"):
+                tracker.save_cursor(result.cursor)
+            tracker.save()
 
         bookmarks.extend(new_tweets)
         if on_progress:
