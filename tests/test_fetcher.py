@@ -187,33 +187,6 @@ async def test_media_items_extracted():
 
 
 @pytest.mark.asyncio
-async def test_fetch_bookmarks_skips_scraped(tmp_path, capsys):
-    from scraper.tracker import ProgressTracker
-
-    tracker = ProgressTracker(str(tmp_path))
-    tracker.load()
-    tracker.mark_scraped("123")
-    tracker.save()
-
-    mock_tweets = [
-        make_mock_tweet(id="123", text="Already scraped"),
-        make_mock_tweet(id="456", text="New tweet"),
-    ]
-    result = make_mock_result(mock_tweets, next_result=None)
-    result.cursor = "scroll:page1"
-    client = MagicMock()
-    client.get_bookmarks = AsyncMock(return_value=result)
-
-    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock):
-        bookmarks = await fetch_bookmarks(client, tracker=tracker)
-
-    assert len(bookmarks) == 1
-    assert bookmarks[0]["id"] == "456"
-    output = capsys.readouterr().out
-    assert "Skipping 1 already-scraped bookmarks" in output
-
-
-@pytest.mark.asyncio
 async def test_fetch_bookmarks_saves_cursor(tmp_path):
     from scraper.tracker import ProgressTracker
 

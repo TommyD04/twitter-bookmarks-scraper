@@ -250,7 +250,7 @@ async def test_end_to_end_resumability(tmp_path, capsys):
         await scrape.main()
 
     output = capsys.readouterr().out
-    assert "Skipping 1 already-scraped bookmarks" in output
+    assert "Skipped 1 existing markdown files" in output
 
 
 @pytest.mark.asyncio

@@ -44,17 +44,8 @@ async def fetch_bookmarks(client, on_progress: Callable[[int], None] | None = No
 
     new_tweets = _extract_tweets(result)
 
-    # Filter out already-scraped tweets
-    if tracker:
-        skipped = [t for t in new_tweets if tracker.is_scraped(t["id"])]
-        if skipped:
-            print(f"Skipping {len(skipped)} already-scraped bookmarks")
-        new_tweets = [t for t in new_tweets if not tracker.is_scraped(t["id"])]
-        for t in new_tweets:
-            tracker.mark_scraped(t["id"])
-        if hasattr(result, "cursor"):
-            tracker.save_cursor(result.cursor)
-        tracker.save()
+    if tracker and hasattr(result, "cursor"):
+        tracker.save_cursor(result.cursor)
 
     bookmarks = list(new_tweets)
     if on_progress:
@@ -81,17 +72,8 @@ async def fetch_bookmarks(client, on_progress: Callable[[int], None] | None = No
         if not new_tweets:
             break
 
-        # Filter out already-scraped tweets
-        if tracker:
-            skipped = [t for t in new_tweets if tracker.is_scraped(t["id"])]
-            if skipped:
-                print(f"Skipping {len(skipped)} already-scraped bookmarks")
-            new_tweets = [t for t in new_tweets if not tracker.is_scraped(t["id"])]
-            for t in new_tweets:
-                tracker.mark_scraped(t["id"])
-            if hasattr(result, "cursor"):
-                tracker.save_cursor(result.cursor)
-            tracker.save()
+        if tracker and hasattr(result, "cursor"):
+            tracker.save_cursor(result.cursor)
 
         bookmarks.extend(new_tweets)
         if on_progress:

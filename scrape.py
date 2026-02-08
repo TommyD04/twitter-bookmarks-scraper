@@ -65,16 +65,23 @@ async def main():
 
     total = len(bookmarks)
     skipped_md = 0
+    written = 0
     for i, bm in enumerate(bookmarks, 1):
+        if tracker.is_scraped(bm["id"]):
+            skipped_md += 1
+            continue
         filename = bookmark_filename(bm)
         filepath = os.path.join(config.output, filename)
         if os.path.isfile(filepath):
             skipped_md += 1
+            tracker.mark_scraped(bm["id"])
             continue
         md = render_bookmark(bm, thread=threads.get(bm["id"]))
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(md)
-        if i % 10 == 0 or i == total:
+        tracker.mark_scraped(bm["id"])
+        written += 1
+        if written % 10 == 0 or i == total:
             print(f"Writing {i}/{total} markdown files...")
 
     if skipped_md:
