@@ -1,3 +1,4 @@
 twikit>=2.3.0
+httpx
 pytest
 pytest-asyncio

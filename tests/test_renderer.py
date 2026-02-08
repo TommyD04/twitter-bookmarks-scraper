@@ -15,6 +15,7 @@ def make_bookmark(**overrides):
         "has_media": False,
         "is_reply": False,
         "in_reply_to": None,
+        "media_items": [],
     }
     defaults.update(overrides)
     return defaults
@@ -102,3 +103,37 @@ def test_render_thread_none_same_as_no_thread():
     md_none = render_bookmark(bm, thread=None)
     md_no_arg = render_bookmark(bm)
     assert md_none == md_no_arg
+
+
+def test_render_photo_media():
+    bm = make_bookmark(media_items=[
+        {"type": "photo", "url": "https://example.com/img.jpg", "filename": "123_0.jpg"},
+    ])
+    md = render_bookmark(bm)
+    assert "![image](media/123_0.jpg)" in md
+
+
+def test_render_video_media():
+    bm = make_bookmark(media_items=[
+        {"type": "video", "url": "https://example.com/vid.mp4", "filename": "123_0.mp4"},
+    ])
+    md = render_bookmark(bm)
+    assert "[video](media/123_0.mp4)" in md
+
+
+def test_render_thread_with_media():
+    parent = make_bookmark(
+        id="98", text="Parent with image",
+        media_items=[
+            {"type": "photo", "url": "https://example.com/p.jpg", "filename": "98_0.jpg"},
+        ],
+    )
+    child = make_bookmark(
+        id="99", text="Reply", is_reply=True, in_reply_to="98",
+    )
+    md = render_bookmark(child, thread=[parent, child])
+
+    assert "![image](media/98_0.jpg)" in md
+    # Media appears after parent text, before separator
+    parent_section = md.split("## Tweet 1 of 2")[1].split("## Tweet 2 of 2")[0]
+    assert "![image](media/98_0.jpg)" in parent_section

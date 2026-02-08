@@ -39,7 +39,8 @@ async def test_fetch_bookmarks_converts_tweets():
     mock_tweets = [
         make_mock_tweet(),
         make_mock_tweet(id="456", text="Second tweet", screen_name="other",
-                        media=[{"type": "photo"}], in_reply_to="789"),
+                        media=[MagicMock(type="photo", media_url="https://example.com/photo.jpg")],
+                        in_reply_to="789"),
     ]
     result = make_mock_result(mock_tweets, next_result=None)
     client = MagicMock()
@@ -57,9 +58,12 @@ async def test_fetch_bookmarks_converts_tweets():
     assert bookmarks[0]["is_reply"] is False
 
     assert bookmarks[0]["in_reply_to"] is None
+    assert bookmarks[0]["media_items"] == []
     assert bookmarks[1]["has_media"] is True
     assert bookmarks[1]["is_reply"] is True
     assert bookmarks[1]["in_reply_to"] == "789"
+    assert len(bookmarks[1]["media_items"]) == 1
+    assert bookmarks[1]["media_items"][0]["type"] == "photo"
 
 
 @pytest.mark.asyncio
@@ -147,3 +151,36 @@ async def test_fetch_bookmarks_progress_callback():
         await fetch_bookmarks(client, on_progress=lambda n: progress_counts.append(n))
 
     assert progress_counts == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_media_items_extracted():
+    """Verify media_items field is present and correctly structured."""
+    mock_photo = MagicMock()
+    mock_photo.type = "photo"
+    mock_photo.media_url = "https://pbs.twimg.com/media/photo1.jpg"
+
+    mock_video = MagicMock()
+    mock_video.type = "video"
+    mock_stream = MagicMock()
+    mock_stream.url = "https://video.twimg.com/vid.mp4"
+    mock_video.streams = [mock_stream]
+
+    tweet = make_mock_tweet(id="500", media=[mock_photo, mock_video])
+    result = make_mock_result([tweet], next_result=None)
+    client = MagicMock()
+    client.get_bookmarks = AsyncMock(return_value=result)
+
+    with patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock):
+        bookmarks = await fetch_bookmarks(client)
+
+    items = bookmarks[0]["media_items"]
+    assert len(items) == 2
+
+    assert items[0]["type"] == "photo"
+    assert items[0]["url"] == "https://pbs.twimg.com/media/photo1.jpg"
+    assert items[0]["filename"] == "500_0.jpg"
+
+    assert items[1]["type"] == "video"
+    assert items[1]["url"] == "https://video.twimg.com/vid.mp4"
+    assert items[1]["filename"] == "500_1.mp4"

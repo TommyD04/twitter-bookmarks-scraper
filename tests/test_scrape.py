@@ -50,9 +50,13 @@ async def test_end_to_end(tmp_path, capsys):
     mock_client.save_cookies = MagicMock()
     mock_client.get_bookmarks = AsyncMock(return_value=mock_result)
 
+    mock_downloader = MagicMock()
+    mock_downloader.download_all = AsyncMock(return_value=(0, 0))
+
     with patch("scraper.auth.Client", return_value=mock_client), \
          patch("scraper.cli.parse_args", return_value=mock_config), \
-         patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock):
+         patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock), \
+         patch("scraper.media.MediaDownloader", return_value=mock_downloader):
         import scrape
         importlib.reload(scrape)
         await scrape.main()
@@ -104,10 +108,14 @@ async def test_end_to_end_with_thread(tmp_path, capsys):
     mock_client.get_bookmarks = AsyncMock(return_value=mock_result)
     mock_client.get_tweet_by_id = AsyncMock(return_value=reply_tweet_obj)
 
+    mock_downloader = MagicMock()
+    mock_downloader.download_all = AsyncMock(return_value=(0, 0))
+
     with patch("scraper.auth.Client", return_value=mock_client), \
          patch("scraper.cli.parse_args", return_value=mock_config), \
          patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock), \
-         patch("scraper.threads.asyncio.sleep", new_callable=AsyncMock):
+         patch("scraper.threads.asyncio.sleep", new_callable=AsyncMock), \
+         patch("scraper.media.MediaDownloader", return_value=mock_downloader):
         import scrape
         importlib.reload(scrape)
         await scrape.main()
@@ -130,3 +138,56 @@ async def test_end_to_end_with_thread(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "Resolving thread 1/1" in output
     assert "Done. 2 bookmarks saved to" in output
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_with_media(tmp_path, capsys):
+    output_dir = str(tmp_path / "bookmarks")
+
+    mock_config = Config(
+        output=output_dir,
+        username="user1",
+        email="e@mail.com",
+        password="pass123",
+    )
+
+    mock_photo = MagicMock()
+    mock_photo.type = "photo"
+    mock_photo.media_url = "https://pbs.twimg.com/photo.jpg"
+
+    tweet = make_mock_tweet(id="300", text="Tweet with image")
+    tweet.media = [mock_photo]
+
+    mock_result = make_mock_result([tweet], next_result=None)
+
+    mock_client = MagicMock()
+    mock_client.login = AsyncMock()
+    mock_client.save_cookies = MagicMock()
+    mock_client.get_bookmarks = AsyncMock(return_value=mock_result)
+
+    mock_downloader = MagicMock()
+    mock_downloader.download_all = AsyncMock(return_value=(1, 0))
+
+    with patch("scraper.auth.Client", return_value=mock_client), \
+         patch("scraper.cli.parse_args", return_value=mock_config), \
+         patch("scraper.fetcher.asyncio.sleep", new_callable=AsyncMock), \
+         patch("scraper.media.MediaDownloader", return_value=mock_downloader):
+        import scrape
+        importlib.reload(scrape)
+        await scrape.main()
+
+    md_file = os.path.join(output_dir, "@test-300.md")
+    assert os.path.isfile(md_file)
+
+    with open(md_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert "![image](media/300_0.jpg)" in content
+    assert "Tweet with image" in content
+
+    # Verify media downloader was called
+    mock_downloader.download_all.assert_called_once()
+
+    output = capsys.readouterr().out
+    assert "Found 1 media items to download" in output
+    assert "Downloaded 1 media files (0 already existed)" in output

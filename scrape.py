@@ -5,6 +5,7 @@ import sys
 from scraper.cli import parse_args
 from scraper.auth import login
 from scraper.fetcher import fetch_bookmarks
+from scraper.media import MediaDownloader
 from scraper.renderer import render_bookmark, bookmark_filename
 from scraper.threads import ThreadResolver
 
@@ -37,6 +38,26 @@ async def main():
                 threads[bm["id"]] = await resolver.resolve(bm)
             except Exception as e:
                 print(f"Warning: thread resolution failed for {bm['id']}: {e}")
+
+    # Download media
+    downloader = MediaDownloader(config.output)
+    media_count = sum(
+        len(bm.get("media_items", [])) for bm in bookmarks
+    ) + sum(
+        len(t.get("media_items", []))
+        for thread in threads.values()
+        for t in thread
+    )
+    if media_count:
+        print(f"Found {media_count} media items to download")
+        downloaded, skipped = await downloader.download_all(
+            bookmarks, threads,
+            on_progress=lambda i, total: (
+                print(f"Downloading media {i}/{total}...")
+                if i % 10 == 0 or i == total else None
+            ),
+        )
+        print(f"Downloaded {downloaded} media files ({skipped} already existed)")
 
     total = len(bookmarks)
     for i, bm in enumerate(bookmarks, 1):

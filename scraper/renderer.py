@@ -30,6 +30,12 @@ def render_bookmark(bookmark: dict, thread: list[dict] | None = None) -> str:
             lines.append("")
             lines.append(tweet["text"])
             lines.append("")
+            for item in tweet.get("media_items", []):
+                if item["type"] == "photo":
+                    lines.append(f'![image](media/{item["filename"]})')
+                else:
+                    lines.append(f'[{item["type"]}](media/{item["filename"]})')
+                lines.append("")
             if i < thread_length:
                 lines.append("---")
                 lines.append("")
@@ -38,6 +44,12 @@ def render_bookmark(bookmark: dict, thread: list[dict] | None = None) -> str:
         lines.append("")
         lines.append(bookmark["text"])
         lines.append("")
+        for item in bookmark.get("media_items", []):
+            if item["type"] == "photo":
+                lines.append(f'![image](media/{item["filename"]})')
+            else:
+                lines.append(f'[{item["type"]}](media/{item["filename"]})')
+            lines.append("")
 
     return "\n".join(lines)
 

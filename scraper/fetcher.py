@@ -21,6 +21,15 @@ def _extract_tweets(result) -> list[dict]:
             "has_media": bool(tweet.media),
             "is_reply": tweet.in_reply_to is not None,
             "in_reply_to": tweet.in_reply_to,
+            "media_items": [
+                {
+                    "type": media.type,
+                    "url": media.media_url if media.type == "photo"
+                           else (media.streams[-1].url if media.streams else None),
+                    "filename": f"{tweet.id}_{i}.{'jpg' if media.type == 'photo' else 'mp4'}",
+                }
+                for i, media in enumerate(tweet.media or [])
+            ],
         })
     return bookmarks
 
